@@ -1,8 +1,4 @@
 /*
- * (C) Radim Kolar 1997-2004
- * This is free software, see GNU Public License version 2 for
- * details.
- *
  * Simple forking WWW Server benchmark:
  *
  * Usage:
@@ -16,6 +12,7 @@
  * 
  */ 
 #include "socket.c"
+
 #include <unistd.h>
 #include <sys/param.h>
 #include <rpc/types.h>
@@ -29,27 +26,34 @@ volatile int timerexpired=0;
 int speed=0;
 int failed=0;
 int bytes=0;
-/* globals */
+
+// HTTP协议版本
 int http10=1; /* 0 - http/0.9, 1 - http/1.0, 2 - http/1.1 */
-/* Allow: GET, HEAD, OPTIONS, TRACE */
+
+/* 支持的HTTP方法: GET, HEAD, OPTIONS, TRACE */
 #define METHOD_GET 0
 #define METHOD_HEAD 1
 #define METHOD_OPTIONS 2
 #define METHOD_TRACE 3
-#define PROGRAM_VERSION "1.5"
-int method=METHOD_GET;
-int clients=1;
-int force=0;
-int force_reload=0;
-int proxyport=80;
-char *proxyhost=NULL;
-int benchtime=30;
-/* internal */
-int mypipe[2];
-char host[MAXHOSTNAMELEN];
-#define REQUEST_SIZE 2048
-char request[REQUEST_SIZE];
 
+#define PROGRAM_VERSION "1.5"
+
+int method=METHOD_GET; // 默认HTTP方法GET 
+int clients=1;         // 默认客户端进程
+int force=0;           // 默认需要等待服务器返回数据
+int force_reload=0;
+int proxyport=80;      // 代理
+char *proxyhost=NULL;  // 代理
+int benchtime=30;      // 默认测试时间 30s
+
+/* internal */
+int mypipe[2];              //s
+char host[MAXHOSTNAMELEN];  // 服务器域名
+
+#define REQUEST_SIZE 2048
+char request[REQUEST_SIZE]; // 保存HTTP请求字符串
+
+// 通用命令行参数处理
 static const struct option long_options[]=
 {
  {"force",no_argument,&force,1},
@@ -69,7 +73,7 @@ static const struct option long_options[]=
  {NULL,0,NULL,0}
 };
 
-/* prototypes */
+// 函数定义
 static void benchcore(const char* host,const int port, const char *request);
 static int bench(void);
 static void build_request(const char *url);
@@ -99,16 +103,15 @@ static void usage(void)
 	"  -V|--version             Display program version.\n"
 	);
 };
+
 int main(int argc, char *argv[])
 {
  int opt=0;
  int options_index=0;
  char *tmp=NULL;
 
- if(argc==1)
- {
-	  usage();
-          return 2;
+ if(argc==1){
+	  usage();return 2;
  } 
 
  while((opt=getopt_long(argc,argv,"912Vfrt:p:c:?h",long_options,&options_index))!=EOF )
@@ -124,7 +127,7 @@ int main(int argc, char *argv[])
    case 'V': printf(PROGRAM_VERSION"\n");exit(0);
    case 't': benchtime=atoi(optarg);break;	     
    case 'p': 
-	     /* proxy server parsing server:port */
+      // 代理服务器
 	     tmp=strrchr(optarg,':');
 	     proxyhost=optarg;
 	     if(tmp==NULL)
@@ -150,19 +153,21 @@ int main(int argc, char *argv[])
   }
  }
  
- if(optind==argc) {
-                      fprintf(stderr,"webbench: Missing URL!\n");
-		      usage();
-		      return 2;
-                    }
+  if(optind==argc) {
+    fprintf(stderr,"webbench: Missing URL!\n");usage();return 2;
+  }
 
- if(clients==0) clients=1;
- if(benchtime==0) benchtime=60;
+  if(clients==0) clients=1;
+  if(benchtime==0) benchtime=60;
+
  /* Copyright */
- fprintf(stderr,"Webbench - Simple Web Benchmark "PROGRAM_VERSION"\n"
-	 "Copyright (c) Radim Kolar 1997-2004, GPL Open Source Software.\n"
-	 );
- build_request(argv[optind]);
+  fprintf(stderr,"Webbench - Simple Web Benchmark "PROGRAM_VERSION"\n"
+    "Copyright (c) Radim Kolar 1997-2004, GPL Open Source Software.\n"
+  );
+
+  // 根据命令行URL构建HTTP请求字符串
+  build_request(argv[optind]);
+
  /* print bench info */
  printf("\nBenchmarking: ");
  switch(method)
@@ -196,6 +201,14 @@ int main(int argc, char *argv[])
  return bench();
 }
 
+// 根据命令行URL构建HTTP请求字符串, 格式如下:
+
+// POST /localhost/login.aspx HTTP/1.1
+//       HOST:
+//       Content-Type:application/x-www-form-urlencoded
+//       Content-Length:10
+      
+//       uid=xxxxxx
 void build_request(const char *url)
 {
   char tmp[10];
@@ -209,8 +222,7 @@ void build_request(const char *url)
   if(method==METHOD_OPTIONS && http10<2) http10=2;
   if(method==METHOD_TRACE && http10<2) http10=2;
 
-  switch(method)
-  {
+  switch(method){
 	  default:
 	  case METHOD_GET: strcpy(request,"GET");break;
 	  case METHOD_HEAD: strcpy(request,"HEAD");break;
@@ -220,31 +232,27 @@ void build_request(const char *url)
 		  
   strcat(request," ");
 
-  if(NULL==strstr(url,"://"))
-  {
-	  fprintf(stderr, "\n%s: is not a valid URL.\n",url);
-	  exit(2);
+  // URL 合法性判断
+  if(NULL==strstr(url,"://")){
+    fprintf(stderr, "\n%s: is not a valid URL.\n",url);exit(2);
   }
-  if(strlen(url)>1500)
-  {
-         fprintf(stderr,"URL is too long.\n");
-	 exit(2);
+  if(strlen(url)>1500){
+    fprintf(stderr,"URL is too long.\n");exit(2);
   }
   if(proxyhost==NULL)
-	   if (0!=strncasecmp("http://",url,7)) 
-	   { fprintf(stderr,"\nOnly HTTP protocol is directly supported, set --proxy for others.\n");
-             exit(2);
-           }
+    if (0!=strncasecmp("http://",url,7)) { 
+      fprintf(stderr,"\nOnly HTTP protocol is directly supported, set --proxy for others.\n");exit(2);
+    }
+
   /* protocol/host delimiter */
   i=strstr(url,"://")-url+3;
   /* printf("%d\n",i); */
 
   if(strchr(url+i,'/')==NULL) {
-                                fprintf(stderr,"\nInvalid URL syntax - hostname don't ends with '/'.\n");
-                                exit(2);
-                              }
-  if(proxyhost==NULL)
-  {
+    fprintf(stderr,"\nInvalid URL syntax - hostname don't ends with '/'.\n");exit(2);
+  }
+
+  if(proxyhost==NULL){
    /* get port from hostname */
    if(index(url+i,':')!=NULL &&
       index(url+i,':')<index(url+i,'/'))
@@ -261,8 +269,7 @@ void build_request(const char *url)
    }
    // printf("Host=%s\n",host);
    strcat(request+strlen(request),url+i+strcspn(url+i,"/"));
-  } else
-  {
+  } else {
    // printf("ProxyHost=%s\nProxyPort=%d\n",proxyhost,proxyport);
    strcat(request,url);
   }
@@ -290,7 +297,7 @@ void build_request(const char *url)
   // printf("Req=%s\n",request);
 }
 
-/* vraci system rc error kod */
+// Fork 子进程, 发送HTTP请求, 
 static int bench(void)
 {
   int i,j,k;	
@@ -395,6 +402,7 @@ static int bench(void)
   return i;
 }
 
+// 建立 socket 连接, 写入HTTP请求字符串
 void benchcore(const char *host,const int port,const char *req)
 {
  int rlen;
